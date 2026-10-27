@@ -1,4 +1,4 @@
-# DialogAuth 1.2.1
+# DialogAuth 1.2.2
 
 Paper 1.21.11–26.3 authentication plugin for offline-mode (cracked) Java servers. Uses native Minecraft dialogs for Java registration/login.
 
@@ -9,7 +9,9 @@ Paper 1.21.11–26.3 authentication plugin for offline-mode (cracked) Java serve
 - Optional automatic login for Floodgate-authenticated Bedrock players (requires Geyser + Floodgate).
 - Optional premium Java auto-login when the joining UUID matches the Mojang profile UUID.
 - Premium-name detection: if the claimed username exists on Mojang but the joining UUID is offline/cracked, the player is NOT auto-logged-in and must use DialogAuth registration/login.
+- `/dialogauth` provides tab-completion suggestions for available subcommands.
 - `/dialogauth reload`, `/dialogauth unregister <player>`, `/dialogauth login`.
+- Admin-only subcommands require `dialogauth.admin` (OP by default); regular players can use `/dialogauth login`.
 
 ## Premium login requirements
 On an offline-mode server, install/configure a compatible premium-authentication solution such as FastLogin so successfully authenticated premium Java users join with their premium UUID. DialogAuth checks the Mojang profile for the username and compares UUIDs; a username existing on Mojang alone is never sufficient for premium auto-login. If Mojang's API is unreachable, premium auto-login is not granted and the player falls back to the normal password/session flow.
@@ -22,7 +24,7 @@ Requires Java 21 and Maven:
 ```sh
 mvn -B clean package
 ```
-Jar output: `target/DialogAuth-1.2.1.jar`.
+Jar output: `target/DialogAuth-1.2.2.jar`.
 
 ## Important
 Native dialog screens require a compatible Java client. Bedrock players are automatically authenticated and therefore do not need the Java dialog screen. Test on a staging server before production.
