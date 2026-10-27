@@ -1,6 +1,17 @@
 # DialogAuth configuration
-# Players must log in again when their previous session is older than this many minutes.
+# Cracked/offline Java accounts must authenticate again when their prior session expires.
 session-expiry-minutes: 30
+
+auto-login:
+  # Requires Geyser + Floodgate. Bedrock players are trusted based on Floodgate's UUID identity.
+  bedrock: true
+  # Premium Java auto-login requires a premium UUID to be supplied by your server login setup (e.g. FastLogin).
+  premium-java: true
+
+premium-name-detection:
+  # Looks up the claimed name on Mojang and compares the profile UUID to the joining UUID.
+  # A cracked client using a premium username will NOT be auto-logged in and must register/login.
+  enabled: true
 
 security:
   min-password-length: 6
@@ -9,5 +20,4 @@ security:
   hash-salt: "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET"
 
 messages:
-  # Additional messages will be configurable in a later release.
   prefix: "&8[&6DialogAuth&8] "
