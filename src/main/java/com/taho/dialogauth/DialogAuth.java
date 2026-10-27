@@ -111,11 +111,25 @@ public final class DialogAuth extends JavaPlugin implements Listener {
             return List.of();
         });
         reminderTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
+            long now = System.currentTimeMillis();
             for (Player p : Bukkit.getOnlinePlayers()) {
-                if (!isAuthenticated(p) && !authCheckStarted.containsKey(p.getUniqueId())
-                        && !openAuthDialogs.contains(p.getUniqueId())) showAuthDialog(p);
+                UUID id = p.getUniqueId();
+                Long authenticatedAt = authenticated.get(id);
+
+                // Expire sessions explicitly while the player is online. Clear any stale
+                // dialog guard and close the old screen before opening login again.
+                if (authenticatedAt != null && now - authenticatedAt >= sessionMillis) {
+                    authenticated.remove(id, authenticatedAt);
+                    openAuthDialogs.remove(id);
+                    p.closeDialog();
+                }
+
+                if (!isAuthenticated(p) && !authCheckStarted.containsKey(id)
+                        && !openAuthDialogs.contains(id)) {
+                    showAuthDialog(p);
+                }
             }
-        }, 40L, 40L);
+        }, 20L, 20L);
         getLogger().info("DialogAuth enabled.");
     }
 
