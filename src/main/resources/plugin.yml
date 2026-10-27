@@ -1,7 +1,7 @@
 name: DialogAuth
 version: 1.0.0
 main: com.taho.dialogauth.DialogAuth
-api-version: '1.21'
+api-version: '26.1'
 author: Taho
 description: Native-dialog password registration and login for offline-mode Minecraft servers.
 commands:
