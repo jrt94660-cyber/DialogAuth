@@ -8,6 +8,7 @@ import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickCallback;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -135,7 +136,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
                     }
                     if (registered) handleLogin(p, key, password);
                     else handleRegister(p, key, password);
-                }))
+                }, ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build()))
                 .build();
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(Component.text(registered ? "DialogAuth | Login" : "DialogAuth | Register"))
