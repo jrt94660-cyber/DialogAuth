@@ -1,6 +1,6 @@
-# DialogAuth 1.1.0
+# DialogAuth 1.2.0
 
-Paper 26.1.x authentication plugin for offline-mode (cracked) Java servers. Uses native Minecraft dialogs for Java registration/login.
+Paper 1.21.11–26.3 authentication plugin for offline-mode (cracked) Java servers. Uses native Minecraft dialogs for Java registration/login.
 
 ## Features
 - Separate native dialog screens for registration and login.
@@ -18,11 +18,11 @@ On an offline-mode server, install/configure a compatible premium-authentication
 Install Geyser and Floodgate. DialogAuth detects Floodgate players through Floodgate's API at runtime and can auto-authenticate them. Without Floodgate, Bedrock auto-login is unavailable.
 
 ## Build
-Requires Java 25 and Maven:
+Requires Java 21 and Maven:
 ```sh
 mvn -B clean package
 ```
-Jar output: `target/DialogAuth-1.1.0.jar`.
+Jar output: `target/DialogAuth-1.2.0.jar`.
 
 ## Important
 Native dialog screens require a compatible Java client. Bedrock players are automatically authenticated and therefore do not need the Java dialog screen. Test on a staging server before production.
