@@ -76,16 +76,25 @@ public final class DialogAuth extends JavaPlugin implements Listener {
             if (args.length == 1 && args[0].equalsIgnoreCase("login") && sender instanceof Player player) {
                 showAuthDialog(player); return true;
             }
+            if (args.length == 1 && args[0].equalsIgnoreCase("changepassword") && sender instanceof Player player) {
+                if (!isAuthenticated(player)) {
+                    player.sendMessage("§cYou must log in before changing your password.");
+                    return true;
+                }
+                showChangePasswordDialog(player);
+                return true;
+            }
             sender.sendMessage("§e/dialogauth reload §7- reload config");
             sender.sendMessage("§e/dialogauth unregister <player> §7- remove registration");
             sender.sendMessage("§e/dialogauth login §7- reopen authentication dialog");
+            sender.sendMessage("§e/dialogauth changepassword §7- change your account password");
             return true;
         });
         // Provide command suggestions as soon as the player types /dialogauth.
         getCommand("dialogauth").setTabCompleter((sender, command, alias, args) -> {
             if (args.length == 1) {
                 String typed = args[0].toLowerCase(Locale.ROOT);
-                return List.of("login", "reload", "unregister").stream()
+                return List.of("login", "changepassword", "reload", "unregister").stream()
                         .filter(option -> option.startsWith(typed))
                         .filter(option -> !option.equals("reload") && !option.equals("unregister")
                                 || sender.hasPermission("dialogauth.admin"))
@@ -297,6 +306,69 @@ public final class DialogAuth extends JavaPlugin implements Listener {
                         .body(List.of(DialogBody.plainMessage(Component.text(registered
                                 ? "Log in with the password you registered." : "Create a password to protect this username."))))
                         .inputs(List.of(passwordInput))
+                        .build())
+                .type(DialogType.multiAction(List.of(submit)).build()));
+        player.showDialog(dialog);
+    }
+
+
+    private void showChangePasswordDialog(Player player) {
+        String key = player.getName().toLowerCase(Locale.ROOT);
+        if (!users.contains(key + ".password")) {
+            player.sendMessage(Component.text("This account is not registered."));
+            return;
+        }
+        DialogInput currentInput = DialogInput.text("current_password", Component.text("Current password"))
+                .width(300).labelVisible(true).maxLength(128).build();
+        DialogInput newInput = DialogInput.text("new_password", Component.text("New password"))
+                .width(300).labelVisible(true).maxLength(128).build();
+        ActionButton submit = ActionButton.builder(Component.text("Change Password"))
+                .width(200)
+                .action(DialogAction.customClick((view, audience) -> {
+                    if (!(audience instanceof Player p) || !p.isOnline()) return;
+                    String current = view.getText("current_password");
+                    String next = view.getText("new_password");
+                    if (current == null || current.isBlank() || next == null || next.isBlank()) {
+                        p.sendMessage(Component.text("Enter both your current and new passwords."));
+                        return;
+                    }
+                    if (next.length() < minPasswordLength) {
+                        p.sendMessage(Component.text("New password must be at least " + minPasswordLength + " characters."));
+                        showChangePasswordDialog(p);
+                        return;
+                    }
+                    String expectedUuid = users.getString(key + ".uuid", "");
+                    if (!expectedUuid.equals(p.getUniqueId().toString())) {
+                        p.sendMessage(Component.text("This account is registered to a different UUID."));
+                        return;
+                    }
+                    try {
+                        byte[] oldSalt = Base64.getDecoder().decode(users.getString(key + ".salt", ""));
+                        String expectedHash = users.getString(key + ".password", "");
+                        String currentHash = hashPassword(current, oldSalt);
+                        if (!MessageDigest.isEqual(expectedHash.getBytes(StandardCharsets.UTF_8),
+                                currentHash.getBytes(StandardCharsets.UTF_8))) {
+                            p.sendMessage(Component.text("Current password is incorrect."));
+                            showChangePasswordDialog(p);
+                            return;
+                        }
+                        byte[] newSalt = new byte[16];
+                        new SecureRandom().nextBytes(newSalt);
+                        users.set(key + ".salt", Base64.getEncoder().encodeToString(newSalt));
+                        users.set(key + ".password", hashPassword(next, newSalt));
+                        saveUsers();
+                        p.sendMessage(Component.text("Your password has been changed successfully."));
+                    } catch (Exception ex) {
+                        getLogger().warning("Could not change password for " + key + ": " + ex.getMessage());
+                        p.sendMessage(Component.text("Could not change your password. Contact an administrator."));
+                    }
+                }, ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build()))
+                .build();
+        Dialog dialog = Dialog.create(builder -> builder.empty()
+                .base(DialogBase.builder(Component.text("DialogAuth | Change Password"))
+                        .canCloseWithEscape(true)
+                        .body(List.of(DialogBody.plainMessage(Component.text("Enter your current password and choose a new one."))))
+                        .inputs(List.of(currentInput, newInput))
                         .build())
                 .type(DialogType.multiAction(List.of(submit)).build()));
         player.showDialog(dialog);
