@@ -235,7 +235,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
             return uuid;
         } catch (Exception ex) {
             getLogger().fine("Mojang profile lookup unavailable for " + playerName + ": " + ex.getMessage());
-            return null; // Network failures never grant premium auto-login.
+            return "__LOOKUP_FAILED__"; // Fail closed: do not trust a session when premium-name status could not be checked.
         } finally {
             if (connection != null) connection.disconnect();
         }
