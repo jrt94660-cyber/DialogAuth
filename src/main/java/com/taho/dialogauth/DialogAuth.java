@@ -269,7 +269,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
                                 ? "Log in with the password you registered." : "Create a password to protect this username."))))
                         .inputs(List.of(passwordInput))
                         .build())
-                .type(DialogType.multiAction(List.of(submit))));
+                .type(DialogType.multiAction(List.of(submit)).build()));
         player.showDialog(dialog);
     }
 
