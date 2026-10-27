@@ -121,7 +121,17 @@ public final class DialogAuth extends JavaPlugin implements Listener {
                 if (authenticatedAt != null && now - authenticatedAt >= sessionMillis) {
                     authenticated.remove(id, authenticatedAt);
                     openAuthDialogs.remove(id);
+                    // Close the expired authenticated state first, then open the login
+                    // dialog on the next tick so the close packet cannot override the new
+                    // dialog packet on clients.
                     p.closeDialog();
+                    Bukkit.getScheduler().runTask(this, () -> {
+                        if (p.isOnline() && !isAuthenticated(p)
+                                && !authCheckStarted.containsKey(id)) {
+                            showAuthDialog(p);
+                        }
+                    });
+                    continue;
                 }
 
                 if (!isAuthenticated(p) && !authCheckStarted.containsKey(id)
