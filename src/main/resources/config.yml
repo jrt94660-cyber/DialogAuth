@@ -1,0 +1,13 @@
+# DialogAuth configuration
+# Players must log in again when their previous session is older than this many minutes.
+session-expiry-minutes: 30
+
+security:
+  min-password-length: 6
+  max-login-attempts: 5
+  # Change this value before using the plugin on a live server.
+  hash-salt: "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET"
+
+messages:
+  # Additional messages will be configurable in a later release.
+  prefix: "&8[&6DialogAuth&8] "
