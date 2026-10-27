@@ -1,4 +1,4 @@
-# DialogAuth 1.2.0
+# DialogAuth 1.2.1
 
 Paper 1.21.11–26.3 authentication plugin for offline-mode (cracked) Java servers. Uses native Minecraft dialogs for Java registration/login.
 
@@ -22,7 +22,7 @@ Requires Java 21 and Maven:
 ```sh
 mvn -B clean package
 ```
-Jar output: `target/DialogAuth-1.2.0.jar`.
+Jar output: `target/DialogAuth-1.2.1.jar`.
 
 ## Important
 Native dialog screens require a compatible Java client. Bedrock players are automatically authenticated and therefore do not need the Java dialog screen. Test on a staging server before production.
