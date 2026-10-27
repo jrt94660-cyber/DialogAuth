@@ -81,6 +81,26 @@ public final class DialogAuth extends JavaPlugin implements Listener {
             sender.sendMessage("§e/dialogauth login §7- reopen authentication dialog");
             return true;
         });
+        // Provide command suggestions as soon as the player types /dialogauth.
+        getCommand("dialogauth").setTabCompleter((sender, command, alias, args) -> {
+            if (args.length == 1) {
+                String typed = args[0].toLowerCase(Locale.ROOT);
+                return List.of("login", "reload", "unregister").stream()
+                        .filter(option -> option.startsWith(typed))
+                        .filter(option -> !option.equals("reload") && !option.equals("unregister")
+                                || sender.hasPermission("dialogauth.admin"))
+                        .toList();
+            }
+            if (args.length == 2 && args[0].equalsIgnoreCase("unregister")
+                    && sender.hasPermission("dialogauth.admin")) {
+                String typed = args[1].toLowerCase(Locale.ROOT);
+                return Bukkit.getOnlinePlayers().stream()
+                        .map(Player::getName)
+                        .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(typed))
+                        .toList();
+            }
+            return List.of();
+        });
         reminderTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 if (!isAuthenticated(p) && !authCheckStarted.containsKey(p.getUniqueId())
