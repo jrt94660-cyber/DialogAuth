@@ -1,5 +1,5 @@
 name: DialogAuth
-version: 1.2.1
+version: 1.2.2
 main: com.taho.dialogauth.DialogAuth
 api-version: '1.21'
 author: Taho
@@ -8,7 +8,6 @@ commands:
   dialogauth:
     description: DialogAuth administration and configuration commands.
     usage: /dialogauth <reload|unregister|login>
-    permission: dialogauth.admin
 permissions:
   dialogauth.admin:
     description: Allows administration of DialogAuth.
