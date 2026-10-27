@@ -22,24 +22,37 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import java.io.File;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class DialogAuth extends JavaPlugin implements Listener {
     private final Map<UUID, Long> authenticated = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> attempts = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> quitTimes = new ConcurrentHashMap<>();
+    private final Map<String, ProfileCache> premiumProfiles = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> authCheckStarted = new ConcurrentHashMap<>();
     private File usersFile;
     private YamlConfiguration users;
     private long sessionMillis;
     private int maxAttempts;
     private int minPasswordLength;
+    private boolean bedrockAutoLogin;
+    private boolean premiumAutoLogin;
+    private boolean premiumNameDetection;
     private BukkitTask reminderTask;
+
+    private record ProfileCache(String uuid, long expiresAt) { }
+    private static final Pattern PROFILE_ID = Pattern.compile("\\\"id\\\"\\s*:\\s*\\\"([0-9a-fA-F]{32})\\\"");
 
     @Override public void onEnable() {
         saveDefaultConfig();
@@ -53,7 +66,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
             }
             if (args.length == 2 && args[0].equalsIgnoreCase("unregister")) {
                 if (!sender.hasPermission("dialogauth.admin")) { sender.sendMessage("§cNo permission."); return true; }
-                String key = args[1].toLowerCase(java.util.Locale.ROOT);
+                String key = args[1].toLowerCase(Locale.ROOT);
                 if (!users.contains(key)) { sender.sendMessage("§cNo registered account found for " + args[1] + "."); return true; }
                 users.set(key, null); saveUsers(); sender.sendMessage("§aRemoved DialogAuth account for " + args[1] + "."); return true;
             }
@@ -66,7 +79,9 @@ public final class DialogAuth extends JavaPlugin implements Listener {
             return true;
         });
         reminderTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
-            for (Player p : Bukkit.getOnlinePlayers()) if (!isAuthenticated(p)) showAuthDialog(p);
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                if (!isAuthenticated(p) && !authCheckStarted.containsKey(p.getUniqueId())) showAuthDialog(p);
+            }
         }, 40L, 40L);
         getLogger().info("DialogAuth enabled.");
     }
@@ -75,53 +90,162 @@ public final class DialogAuth extends JavaPlugin implements Listener {
         if (reminderTask != null) reminderTask.cancel();
         saveUsers();
     }
+
     private void loadSettings() {
         sessionMillis = Math.max(1, getConfig().getLong("session-expiry-minutes", 30)) * 60_000L;
         maxAttempts = Math.max(1, getConfig().getInt("security.max-login-attempts", 5));
         minPasswordLength = Math.max(6, getConfig().getInt("security.min-password-length", 6));
+        bedrockAutoLogin = getConfig().getBoolean("auto-login.bedrock", true);
+        premiumAutoLogin = getConfig().getBoolean("auto-login.premium-java", true);
+        premiumNameDetection = getConfig().getBoolean("premium-name-detection.enabled", true);
     }
+
     private void loadUsers() {
         if (!getDataFolder().exists()) getDataFolder().mkdirs();
         usersFile = new File(getDataFolder(), "users.yml");
         users = YamlConfiguration.loadConfiguration(usersFile);
     }
+
     private synchronized void saveUsers() {
         try { users.save(usersFile); } catch (IOException e) { getLogger().severe("Could not save users.yml: " + e.getMessage()); }
     }
 
     @EventHandler public void onJoin(PlayerJoinEvent event) {
         Player p = event.getPlayer();
-        attempts.remove(p.getUniqueId());
-        long lastQuit = getConfig().getLong("sessions." + p.getUniqueId(), 0L);
-        if (users.contains(p.getName().toLowerCase(java.util.Locale.ROOT)) && lastQuit > 0 && System.currentTimeMillis() - lastQuit < sessionMillis) {
-            authenticated.put(p.getUniqueId(), System.currentTimeMillis());
-        } else {
-            authenticated.remove(p.getUniqueId());
+        UUID id = p.getUniqueId();
+        attempts.remove(id);
+        authenticated.remove(id);
+        authCheckStarted.put(id, System.currentTimeMillis());
+
+        if (bedrockAutoLogin && isFloodgatePlayer(id)) {
+            authCheckStarted.remove(id);
+            authenticated.put(id, System.currentTimeMillis());
+            p.sendMessage(Component.text("Bedrock player detected; automatic login enabled."));
+            return;
         }
-        Bukkit.getScheduler().runTaskLater(this, () -> { if (p.isOnline() && !isAuthenticated(p)) showAuthDialog(p); }, 5L);
+
+        // A Mojang profile lookup plus UUID comparison distinguishes an authenticated
+        // premium Java login from a cracked client claiming the same premium username.
+        if (premiumNameDetection && premiumAutoLogin) {
+            Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+                String premiumUuid = lookupPremiumUuid(p.getName());
+                Bukkit.getScheduler().runTask(this, () -> {
+                    if (!p.isOnline()) { authCheckStarted.remove(id); return; }
+                    if (premiumUuid != null && normalizeUuid(premiumUuid).equals(normalizeUuid(id.toString()))) {
+                        authenticated.put(id, System.currentTimeMillis());
+                        authCheckStarted.remove(id);
+                        p.closeDialog();
+                        p.sendMessage(Component.text("Premium Java account verified; automatic login enabled."));
+                        return;
+                    }
+                    // A premium username with an offline/cracked UUID is deliberately NOT
+                    // trusted. It must pass password auth even if a previous session exists.
+                    boolean premiumNameClaimedByCrackedClient = premiumUuid != null;
+                    if (!premiumNameClaimedByCrackedClient) {
+                        long lastQuit = getConfig().getLong("sessions." + id, 0L);
+                        if (users.contains(p.getName().toLowerCase(Locale.ROOT) + ".password")
+                                && lastQuit > 0 && System.currentTimeMillis() - lastQuit < sessionMillis) {
+                            authenticated.put(id, System.currentTimeMillis());
+                            authCheckStarted.remove(id);
+                            return;
+                        }
+                    }
+                    authCheckStarted.remove(id);
+                    showAuthDialog(p);
+                });
+            });
+        } else {
+            long lastQuit = getConfig().getLong("sessions." + id, 0L);
+            if (users.contains(p.getName().toLowerCase(Locale.ROOT) + ".password")
+                    && lastQuit > 0 && System.currentTimeMillis() - lastQuit < sessionMillis) {
+                authenticated.put(id, System.currentTimeMillis());
+                authCheckStarted.remove(id);
+            } else {
+                authCheckStarted.remove(id);
+                Bukkit.getScheduler().runTaskLater(this, () -> {
+                    if (p.isOnline() && !isAuthenticated(p)) showAuthDialog(p);
+                }, 5L);
+            }
+        }
+        // Give the asynchronous premium lookup time to finish before the periodic reminder.
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            if (p.isOnline() && !isAuthenticated(p) && !authCheckStarted.containsKey(id)) showAuthDialog(p);
+        }, 100L);
     }
+
     @EventHandler public void onQuit(PlayerQuitEvent event) {
         UUID id = event.getPlayer().getUniqueId();
         authenticated.remove(id);
+        authCheckStarted.remove(id);
         getConfig().set("sessions." + id, System.currentTimeMillis());
         saveConfig();
         attempts.remove(id);
     }
+
     private boolean isAuthenticated(Player p) {
         Long t = authenticated.get(p.getUniqueId());
         return t != null && System.currentTimeMillis() - t < sessionMillis;
     }
+
     private void markAuthenticated(Player p) {
         authenticated.put(p.getUniqueId(), System.currentTimeMillis());
+        authCheckStarted.remove(p.getUniqueId());
         getConfig().set("sessions." + p.getUniqueId(), System.currentTimeMillis());
         saveConfig();
         p.closeDialog();
         p.sendMessage(Component.text("You are authenticated. Welcome!"));
     }
 
+    private boolean isFloodgatePlayer(UUID uuid) {
+        if (Bukkit.getPluginManager().getPlugin("floodgate") == null
+                && Bukkit.getPluginManager().getPlugin("Floodgate") == null) return false;
+        try {
+            Class<?> apiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
+            Object api = apiClass.getMethod("getInstance").invoke(null);
+            Object result = apiClass.getMethod("isFloodgatePlayer", UUID.class).invoke(api, uuid);
+            return Boolean.TRUE.equals(result);
+        } catch (ReflectiveOperationException ex) {
+            getLogger().warning("Floodgate was detected but its API could not be queried; Bedrock auto-login skipped.");
+            return false;
+        }
+    }
+
+    private String lookupPremiumUuid(String playerName) {
+        if (!premiumNameDetection) return null;
+        long now = System.currentTimeMillis();
+        ProfileCache cached = premiumProfiles.get(playerName.toLowerCase(Locale.ROOT));
+        if (cached != null && cached.expiresAt() > now) return cached.uuid();
+        HttpURLConnection connection = null;
+        try {
+            String encodedName = java.net.URLEncoder.encode(playerName, StandardCharsets.UTF_8);
+            connection = (HttpURLConnection) URI.create("https://api.mojang.com/users/profiles/minecraft/" + encodedName).toURL().openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(2500);
+            connection.setReadTimeout(2500);
+            connection.setRequestProperty("User-Agent", "DialogAuth/1.1.0");
+            int status = connection.getResponseCode();
+            String uuid = null;
+            if (status == 200) {
+                String json = new String(connection.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                Matcher matcher = PROFILE_ID.matcher(json);
+                if (matcher.find()) uuid = matcher.group(1).toLowerCase(Locale.ROOT);
+            }
+            // Cache positive and negative results briefly to avoid hitting Mojang on every join.
+            premiumProfiles.put(playerName.toLowerCase(Locale.ROOT), new ProfileCache(uuid, now + (uuid == null ? 60_000L : 600_000L)));
+            return uuid;
+        } catch (Exception ex) {
+            getLogger().fine("Mojang profile lookup unavailable for " + playerName + ": " + ex.getMessage());
+            return null; // Network failures never grant premium auto-login.
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private String normalizeUuid(String uuid) { return uuid.replace("-", "").toLowerCase(Locale.ROOT); }
+
     private void showAuthDialog(Player player) {
-        if (!player.isOnline() || isAuthenticated(player)) return;
-        String key = player.getName().toLowerCase(java.util.Locale.ROOT);
+        if (!player.isOnline() || isAuthenticated(player) || authCheckStarted.containsKey(player.getUniqueId())) return;
+        String key = player.getName().toLowerCase(Locale.ROOT);
         boolean registered = users.contains(key + ".password");
         DialogInput passwordInput = DialogInput.text("password", Component.text(registered ? "Enter your password" : "Create a password"))
                 .width(300).labelVisible(true).maxLength(128).build();
@@ -164,17 +288,18 @@ public final class DialogAuth extends JavaPlugin implements Listener {
         saveUsers();
         markAuthenticated(player);
     }
+
     private void handleLogin(Player player, String key, String password) {
         String expectedUuid = users.getString(key + ".uuid", "");
         if (!expectedUuid.equals(player.getUniqueId().toString())) {
-            player.kick(Component.text("This username is registered to a different offline UUID."));
+            player.kick(Component.text("This username is registered to a different UUID."));
             return;
         }
         try {
             byte[] salt = Base64.getDecoder().decode(users.getString(key + ".salt", ""));
             String expected = users.getString(key + ".password", "");
-            if (!MessageDigest.isEqual(expected.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                    hashPassword(password, salt).getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+            if (!MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
+                    hashPassword(password, salt).getBytes(StandardCharsets.UTF_8))) {
                 int count = attempts.merge(player.getUniqueId(), 1, Integer::sum);
                 if (count >= maxAttempts) { player.kick(Component.text("Too many incorrect password attempts.")); return; }
                 player.sendMessage(Component.text("Incorrect password. Attempts: " + count + "/" + maxAttempts));
@@ -186,6 +311,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
             player.kick(Component.text("Account password data is invalid. Contact a server administrator."));
         }
     }
+
     private String hashPassword(String password, byte[] salt) {
         PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt, 210_000, 256);
         try {
