@@ -31,6 +31,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -41,6 +42,8 @@ public final class DialogAuth extends JavaPlugin implements Listener {
     private final Map<UUID, Integer> attempts = new ConcurrentHashMap<>();
     private final Map<String, ProfileCache> premiumProfiles = new ConcurrentHashMap<>();
     private final Map<UUID, Long> authCheckStarted = new ConcurrentHashMap<>();
+    // Prevent the reminder task from reopening the dialog while the player is typing.
+    private final Set<UUID> openAuthDialogs = ConcurrentHashMap.newKeySet();
     private File usersFile;
     private YamlConfiguration users;
     private long sessionMillis;
@@ -80,7 +83,8 @@ public final class DialogAuth extends JavaPlugin implements Listener {
         });
         reminderTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
-                if (!isAuthenticated(p) && !authCheckStarted.containsKey(p.getUniqueId())) showAuthDialog(p);
+                if (!isAuthenticated(p) && !authCheckStarted.containsKey(p.getUniqueId())
+                        && !openAuthDialogs.contains(p.getUniqueId())) showAuthDialog(p);
             }
         }, 40L, 40L);
         getLogger().info("DialogAuth enabled.");
@@ -115,6 +119,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
         UUID id = p.getUniqueId();
         attempts.remove(id);
         authenticated.remove(id);
+        openAuthDialogs.remove(id);
         authCheckStarted.put(id, System.currentTimeMillis());
 
         if (bedrockAutoLogin && isFloodgatePlayer(id)) {
@@ -176,6 +181,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
     @EventHandler public void onQuit(PlayerQuitEvent event) {
         UUID id = event.getPlayer().getUniqueId();
         authenticated.remove(id);
+        openAuthDialogs.remove(id);
         authCheckStarted.remove(id);
         getConfig().set("sessions." + id, System.currentTimeMillis());
         saveConfig();
@@ -245,6 +251,8 @@ public final class DialogAuth extends JavaPlugin implements Listener {
 
     private void showAuthDialog(Player player) {
         if (!player.isOnline() || isAuthenticated(player) || authCheckStarted.containsKey(player.getUniqueId())) return;
+        UUID playerId = player.getUniqueId();
+        if (!openAuthDialogs.add(playerId)) return;
         String key = player.getName().toLowerCase(Locale.ROOT);
         boolean registered = users.contains(key + ".password");
         DialogInput passwordInput = DialogInput.text("password", Component.text(registered ? "Enter your password" : "Create a password"))
@@ -253,6 +261,7 @@ public final class DialogAuth extends JavaPlugin implements Listener {
                 .width(200)
                 .action(DialogAction.customClick((view, audience) -> {
                     if (!(audience instanceof Player p) || !p.isOnline()) return;
+                    openAuthDialogs.remove(p.getUniqueId());
                     String password = view.getText("password");
                     if (password == null || password.isBlank()) {
                         p.sendMessage(Component.text("Please enter a password."));
